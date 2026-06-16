@@ -1,22 +1,21 @@
+import "./styles.css";
 import { invoke } from "@tauri-apps/api/core";
+import { applyTheme, resolveTheme } from "./theme";
 
-let greetInputEl: HTMLInputElement | null;
-let greetMsgEl: HTMLElement | null;
+interface AppConfig {
+  theme: string;
+  hotkey_main: string;
+  hotkey_paste: string;
+  max_clipboard: number;
+}
 
-async function greet() {
-  if (greetMsgEl && greetInputEl) {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    greetMsgEl.textContent = await invoke("greet", {
-      name: greetInputEl.value,
-    });
+async function init(): Promise<void> {
+  try {
+    const cfg = await invoke<AppConfig>("get_config");
+    applyTheme(resolveTheme(cfg.theme));
+  } catch {
+    applyTheme("warm");
   }
 }
 
-window.addEventListener("DOMContentLoaded", () => {
-  greetInputEl = document.querySelector("#greet-input");
-  greetMsgEl = document.querySelector("#greet-msg");
-  document.querySelector("#greet-form")?.addEventListener("submit", (e) => {
-    e.preventDefault();
-    greet();
-  });
-});
+void init();
