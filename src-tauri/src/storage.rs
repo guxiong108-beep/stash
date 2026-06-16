@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS file_usage (
     open_count INTEGER NOT NULL DEFAULT 0,
     last_used  INTEGER
 );
+PRAGMA user_version = 1;
 ";
 
 impl Store {
@@ -36,6 +37,8 @@ impl Store {
             std::fs::create_dir_all(parent)?;
         }
         let conn = Connection::open(db_path)?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        conn.execute_batch("PRAGMA journal_mode=WAL;")?;
         let store = Store { conn };
         store.run_migrations()?;
         Ok(store)

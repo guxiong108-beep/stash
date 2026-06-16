@@ -57,10 +57,12 @@ pub fn run() {
                 .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
             app.manage(Mutex::new(store));
 
+            // A hotkey conflict (e.g. another app owns Alt+Space) must not crash
+            // startup — log and keep running so the app stays usable.
             let main_hotkey = Shortcut::new(Some(Modifiers::ALT), Code::Space);
-            app.global_shortcut()
-                .register(main_hotkey)
-                .map_err(|e| -> Box<dyn std::error::Error> { Box::new(e) })?;
+            if let Err(e) = app.global_shortcut().register(main_hotkey) {
+                eprintln!("[stash] failed to register global hotkey Alt+Space: {e}");
+            }
             Ok(())
         })
         .run(tauri::generate_context!())
