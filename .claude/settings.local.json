@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bash \"C:/Users/guxio/.claude/plugins/cache/superpowers-marketplace/superpowers/5.1.0/skills/brainstorming/scripts/start-server.sh\" --project-dir \"C:/Users/guxio/Claude/Projects/CVTOOL\")",
+      "Bash(bash \"C:/Users/guxio/.claude/plugins/cache/superpowers-marketplace/superpowers/5.1.0/skills/brainstorming/scripts/stop-server.sh\" \"C:/Users/guxio/Claude/Projects/CVTOOL/.superpowers/brainstorm/1497-1781612363\")",
+      "PowerShell($rustc = Get-Command rustc -ErrorAction SilentlyContinue; if \\($rustc\\) { rustc --version; cargo --version } else { \"RUST_MISSING\" }; \"---cargo home---\"; if \\(Test-Path \"$env:USERPROFILE\\\\.cargo\\\\bin\\\\cargo.exe\"\\) { \"cargo.exe exists at .cargo\\\\bin\" } else { \"no cargo in .cargo\\\\bin\" })"
+    ]
+  }
+}
