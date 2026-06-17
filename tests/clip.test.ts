@@ -1,9 +1,21 @@
 import { describe, it, expect } from "vitest";
-import { formatClipPreview, type ClipItem } from "../src/clip";
+import {
+  formatClipPreview,
+  clipTypeLabel,
+  textCharCount,
+  type ClipItem,
+} from "../src/clip";
 
 function textItem(text: string): ClipItem {
   return {
     id: 1, kind: "text", text, image_path: null, thumb_path: null,
+    source_app: null, pinned: false, created_at: 0,
+  };
+}
+
+function imageItem(): ClipItem {
+  return {
+    id: 2, kind: "image", text: null, image_path: "x.png", thumb_path: "t.png",
     source_app: null, pinned: false, created_at: 0,
   };
 }
@@ -22,10 +34,22 @@ describe("formatClipPreview", () => {
   });
 
   it("labels image items", () => {
-    const img: ClipItem = {
-      id: 2, kind: "image", text: null, image_path: "x.png", thumb_path: "t.png",
-      source_app: null, pinned: false, created_at: 0,
-    };
-    expect(formatClipPreview(img)).toBe("[图片]");
+    expect(formatClipPreview(imageItem())).toBe("[图片]");
+  });
+});
+
+describe("clipTypeLabel", () => {
+  it("returns 文本 for text and 图片 for image", () => {
+    expect(clipTypeLabel(textItem("hi"))).toBe("文本");
+    expect(clipTypeLabel(imageItem())).toBe("图片");
+  });
+});
+
+describe("textCharCount", () => {
+  it("counts characters for text items", () => {
+    expect(textCharCount(textItem("hello"))).toBe(5);
+  });
+  it("returns null for image items", () => {
+    expect(textCharCount(imageItem())).toBeNull();
   });
 });

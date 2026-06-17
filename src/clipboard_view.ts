@@ -1,7 +1,19 @@
-import { clipApi, formatClipPreview, type ClipItem } from "./clip";
+import {
+  clipApi,
+  formatClipPreview,
+  clipTypeLabel,
+  textCharCount,
+  type ClipItem,
+} from "./clip";
 import { convertFileSrc } from "@tauri-apps/api/core";
 
+let items: ClipItem[] = [];
+let selectedId: number | null = null;
+
 const listEl = () => document.getElementById("clip-list") as HTMLUListElement;
+const detailEl = () => document.getElementById("clip-detail") as HTMLElement;
+const bodyEl = () =>
+  document.querySelector(".command-bar__body") as HTMLElement;
 const hintEl = () => document.getElementById("hint") as HTMLElement;
 
 function escapeHtml(s: string): string {
@@ -15,11 +27,12 @@ function rowHtml(item: ClipItem): string {
   const thumb =
     item.kind === "image" && item.thumb_path
       ? `<img class="clip-row__thumb" src="${convertFileSrc(item.thumb_path)}" />`
-      : "";
+      : `<span class="clip-row__thumb clip-row__thumb--text">T</span>`;
   const source = item.source_app
     ? `<span class="clip-row__source" title="来源">${escapeHtml(item.source_app)}</span>`
     : "";
-  return `<li class="clip-row" data-id="${item.id}" data-pinned="${item.pinned}">
+  const sel = item.id === selectedId ? " is-selected" : "";
+  return `<li class="clip-row${sel}" data-id="${item.id}" data-pinned="${item.pinned}">
     ${thumb}
     <span class="clip-row__text">${escapeHtml(formatClipPreview(item))}</span>
     ${source}
@@ -30,20 +43,102 @@ function rowHtml(item: ClipItem): string {
   </li>`;
 }
 
-export async function renderClipboard(query = ""): Promise<void> {
-  const items = query ? await clipApi.search(query) : await clipApi.list();
-  const ul = listEl();
-  ul.innerHTML = items.map(rowHtml).join("");
-  hintEl().style.display = items.length ? "none" : "block";
+function metaRow(label: string, value: string): string {
+  return `<div class="clip-detail__metarow"><span class="clip-detail__metakey">${label}</span><span class="clip-detail__metaval">${escapeHtml(value)}</span></div>`;
 }
 
-/** Wire click handlers once. */
+function detailHtml(item: ClipItem | null): string {
+  if (!item) {
+    return `<p class="clip-detail__empty">选择左侧条目查看详情</p>`;
+  }
+  const preview =
+    item.kind === "image" && item.image_path
+      ? `<img class="clip-detail__img" src="${convertFileSrc(item.image_path)}" />`
+      : `<div class="clip-detail__text">${escapeHtml(item.text ?? "")}</div>`;
+
+  const rows: string[] = [];
+  rows.push(metaRow("来源", item.source_app ?? "—"));
+  if (item.kind === "image") {
+    rows.push(
+      `<div class="clip-detail__metarow"><span class="clip-detail__metakey">类型</span><span class="clip-detail__metaval">图片 <span class="clip-detail__dims"></span></span></div>`,
+    );
+  } else {
+    rows.push(metaRow("类型", clipTypeLabel(item)));
+    rows.push(metaRow("字数", String(textCharCount(item) ?? 0)));
+  }
+  rows.push(metaRow("时间", new Date(item.created_at).toLocaleString()));
+
+  return `<div class="clip-detail__preview">${preview}</div>
+    <div class="clip-detail__meta">${rows.join("")}</div>`;
+}
+
+function renderDetail(): void {
+  const item = items.find((i) => i.id === selectedId) ?? null;
+  detailEl().innerHTML = detailHtml(item);
+  const img = detailEl().querySelector(
+    ".clip-detail__img",
+  ) as HTMLImageElement | null;
+  const dims = detailEl().querySelector(".clip-detail__dims") as HTMLElement | null;
+  if (img && dims) {
+    const fill = () => {
+      if (img.naturalWidth) dims.textContent = `(${img.naturalWidth}×${img.naturalHeight})`;
+    };
+    img.complete ? fill() : img.addEventListener("load", fill);
+  }
+}
+
+export async function renderClipboard(query = ""): Promise<void> {
+  items = query ? await clipApi.search(query) : await clipApi.list();
+  if (!items.some((i) => i.id === selectedId)) {
+    selectedId = items[0]?.id ?? null;
+  }
+  const has = items.length > 0;
+  bodyEl().style.display = has ? "flex" : "none";
+  hintEl().style.display = has ? "none" : "block";
+  listEl().innerHTML = items.map(rowHtml).join("");
+  renderDetail();
+}
+
+/** Select a row by id: update highlight + detail pane. */
+export function selectItem(id: number): void {
+  selectedId = id;
+  listEl()
+    .querySelectorAll(".clip-row")
+    .forEach((r) =>
+      r.classList.toggle(
+        "is-selected",
+        Number((r as HTMLElement).dataset.id) === id,
+      ),
+    );
+  renderDetail();
+}
+
+/** Move selection up (-1) or down (+1) the list. */
+export function moveSelection(delta: number): void {
+  if (!items.length) return;
+  const idx = items.findIndex((i) => i.id === selectedId);
+  const next = Math.min(items.length - 1, Math.max(0, idx + delta));
+  const target = items[next];
+  if (target) {
+    selectItem(target.id);
+    const row = listEl().querySelector(
+      `.clip-row[data-id="${target.id}"]`,
+    ) as HTMLElement | null;
+    row?.scrollIntoView({ block: "nearest" });
+  }
+}
+
+/** Wire row click (select / pin / delete) once. */
 export function bindClipboardActions(): void {
   listEl().addEventListener("click", async (e) => {
-    const btn = (e.target as HTMLElement).closest("button[data-act]");
-    if (!btn) return;
-    const row = btn.closest(".clip-row") as HTMLElement;
+    const row = (e.target as HTMLElement).closest(".clip-row") as HTMLElement | null;
+    if (!row) return;
     const id = Number(row.dataset.id);
+    const btn = (e.target as HTMLElement).closest("button[data-act]");
+    if (!btn) {
+      selectItem(id);
+      return;
+    }
     const act = (btn as HTMLElement).dataset.act;
     if (act === "del") await clipApi.remove(id);
     if (act === "pin") {

@@ -2,7 +2,11 @@ import "./styles.css";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { applyTheme, resolveTheme } from "./theme";
-import { renderClipboard, bindClipboardActions } from "./clipboard_view";
+import {
+  renderClipboard,
+  bindClipboardActions,
+  moveSelection,
+} from "./clipboard_view";
 
 interface AppConfig {
   theme: string;
@@ -46,6 +50,16 @@ async function init(): Promise<void> {
   }
   setupTabs();
   bindClipboardActions();
+  document.addEventListener("keydown", (e) => {
+    if (mode !== "clipboard" && mode !== "all") return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      moveSelection(1);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      moveSelection(-1);
+    }
+  });
   (document.getElementById("search") as HTMLInputElement).addEventListener("input", refresh);
   await listen("clip://changed", () => refresh());
   refresh();
