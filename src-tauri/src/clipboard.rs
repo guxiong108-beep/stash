@@ -97,6 +97,19 @@ pub fn enforce_cap(conn: &Connection, max: i64) -> rusqlite::Result<()> {
     Ok(())
 }
 
+pub fn delete(conn: &Connection, id: i64) -> rusqlite::Result<()> {
+    conn.execute(
+        "DELETE FROM clipboard_items WHERE id=?1",
+        rusqlite::params![id],
+    )?;
+    Ok(())
+}
+
+pub fn clear(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM clipboard_items", [])?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,5 +184,25 @@ mod tests {
             items.iter().any(|i| i.text.as_deref() == Some("pinned-old")),
             "pinned item survives eviction"
         );
+    }
+
+    #[test]
+    fn delete_removes_one_item() {
+        let (_d, store) = open();
+        let a = insert_text(&store.conn, "a", None).unwrap();
+        insert_text(&store.conn, "b", None).unwrap();
+        delete(&store.conn, a).unwrap();
+        let items = list_recent(&store.conn, 50).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].text.as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn clear_removes_everything() {
+        let (_d, store) = open();
+        insert_text(&store.conn, "a", None).unwrap();
+        insert_text(&store.conn, "b", None).unwrap();
+        clear(&store.conn).unwrap();
+        assert_eq!(list_recent(&store.conn, 50).unwrap().len(), 0);
     }
 }
