@@ -1,5 +1,6 @@
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct ClipItem {
@@ -122,6 +123,61 @@ pub fn search(conn: &Connection, query: &str, limit: i64) -> rusqlite::Result<Ve
     rows.collect()
 }
 
+/// Decode `bytes`, write the original as PNG to `images_dir/<sha256>.png` and a
+/// 160px thumbnail to `thumbs_dir/<sha256>.png`. Returns (image_path, thumb_path, hash).
+pub fn save_image_bytes(
+    images_dir: &Path,
+    thumbs_dir: &Path,
+    bytes: &[u8],
+) -> anyhow::Result<(String, String, String)> {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(bytes);
+    let hash: String = digest.iter().map(|b| format!("{:02x}", b)).collect();
+    std::fs::create_dir_all(images_dir)?;
+    std::fs::create_dir_all(thumbs_dir)?;
+    let img = image::load_from_memory(bytes)?;
+    let image_path = images_dir.join(format!("{hash}.png"));
+    let thumb_path = thumbs_dir.join(format!("{hash}.png"));
+    img.save(&image_path)?;
+    img.thumbnail(160, 160).save(&thumb_path)?;
+    Ok((
+        image_path.to_string_lossy().into_owned(),
+        thumb_path.to_string_lossy().into_owned(),
+        hash,
+    ))
+}
+
+pub fn insert_image(
+    conn: &Connection,
+    image_path: &str,
+    thumb_path: &str,
+    hash: &str,
+    source_app: Option<&str>,
+) -> rusqlite::Result<i64> {
+    let existing: Option<i64> = conn
+        .query_row(
+            "SELECT id FROM clipboard_items WHERE kind='image' AND hash=?1 LIMIT 1",
+            rusqlite::params![hash],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let now = now_millis();
+    if let Some(id) = existing {
+        conn.execute(
+            "UPDATE clipboard_items SET created_at=?1 WHERE id=?2",
+            rusqlite::params![now, id],
+        )?;
+        return Ok(id);
+    }
+    conn.execute(
+        "INSERT INTO clipboard_items
+         (kind, content, image_path, thumb_path, hash, source_app, pinned, created_at)
+         VALUES ('image', NULL, ?1, ?2, ?3, ?4, 0, ?5)",
+        rusqlite::params![image_path, thumb_path, hash, source_app, now],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -234,5 +290,44 @@ mod tests {
         insert_text(&store.conn, "abc", None).unwrap();
         let hits = search(&store.conn, "zzz", 50).unwrap();
         assert_eq!(hits.len(), 0);
+    }
+
+    fn tiny_png() -> Vec<u8> {
+        use image::{ImageFormat, RgbImage};
+        let img = RgbImage::from_pixel(4, 4, image::Rgb([10, 20, 30]));
+        let mut buf = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(img)
+            .write_to(&mut buf, ImageFormat::Png)
+            .unwrap();
+        buf.into_inner()
+    }
+
+    #[test]
+    fn save_image_bytes_writes_original_and_thumb() {
+        let dir = tempdir().unwrap();
+        let images = dir.path().join("images");
+        let thumbs = dir.path().join("thumbs");
+        let (image_path, thumb_path, hash) =
+            save_image_bytes(&images, &thumbs, &tiny_png()).unwrap();
+        assert!(std::path::Path::new(&image_path).exists());
+        assert!(std::path::Path::new(&thumb_path).exists());
+        assert_eq!(hash.len(), 64, "sha256 hex is 64 chars");
+    }
+
+    #[test]
+    fn insert_image_then_list_returns_image_item_and_dedupes() {
+        let (d, store) = open();
+        let images = d.path().join("images");
+        let thumbs = d.path().join("thumbs");
+        let (ip, tp, hash) = save_image_bytes(&images, &thumbs, &tiny_png()).unwrap();
+        let id1 = insert_image(&store.conn, &ip, &tp, &hash, None).unwrap();
+        let id2 = insert_image(&store.conn, &ip, &tp, &hash, None).unwrap();
+        assert_eq!(id1, id2, "same image hash dedupes to one row");
+        let items = list_recent(&store.conn, 50).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].kind, "image");
+        assert_eq!(items[0].image_path.as_deref(), Some(ip.as_str()));
+        assert_eq!(items[0].thumb_path.as_deref(), Some(tp.as_str()));
+        assert!(items[0].text.is_none());
     }
 }
