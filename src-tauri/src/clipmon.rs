@@ -87,12 +87,12 @@ impl Monitor {
             if let Ok(img) = self.ctx.get_image() {
                 let png_buf = img.to_png().map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 let bytes = png_buf.get_bytes();
-                let (image_path, thumb_path, hash) = clipboard::save_image_bytes(
+                let (image_path, thumb_path, hash, w, h) = clipboard::save_image_bytes(
                     &paths::images_dir(&self.base),
                     &paths::thumbs_dir(&self.base),
                     bytes,
                 )?;
-                clipboard::insert_image(&store.conn, &image_path, &thumb_path, &hash, source)?;
+                clipboard::insert_image(&store.conn, &image_path, &thumb_path, &hash, w, h, source)?;
                 clipboard::enforce_cap(&store.conn, self.max_clipboard)?;
                 return Ok(true);
             }

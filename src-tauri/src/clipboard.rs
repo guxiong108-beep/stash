@@ -12,6 +12,8 @@ pub struct ClipItem {
     pub source_app: Option<String>,
     pub pinned: bool,
     pub created_at: i64, // unix millis
+    pub width: Option<i64>,
+    pub height: Option<i64>,
 }
 
 fn now_millis() -> i64 {
@@ -43,11 +45,13 @@ fn row_to_item(row: &rusqlite::Row) -> rusqlite::Result<ClipItem> {
         source_app: row.get(5)?,
         pinned: row.get::<_, i64>(6)? != 0,
         created_at: row.get(7)?,
+        width: row.get(8)?,
+        height: row.get(9)?,
     })
 }
 
 const SELECT_COLS: &str =
-    "id, kind, content, image_path, thumb_path, source_app, pinned, created_at";
+    "id, kind, content, image_path, thumb_path, source_app, pinned, created_at, width, height";
 
 pub fn insert_text(
     conn: &Connection,
@@ -138,20 +142,22 @@ pub fn search(conn: &Connection, query: &str, limit: i64) -> rusqlite::Result<Ve
 }
 
 /// Decode `bytes`, write the original as PNG to `images_dir/<sha256>.png` and a
-/// 160px thumbnail to `thumbs_dir/<sha256>.png`. Returns (image_path, thumb_path, hash).
+/// 160px thumbnail to `thumbs_dir/<sha256>.png`. Returns (image_path, thumb_path, hash, width, height).
 /// `hash` is the SHA-256 of the *source* `bytes` (used as the dedupe identity),
 /// not of the re-encoded PNG written to disk.
 pub fn save_image_bytes(
     images_dir: &Path,
     thumbs_dir: &Path,
     bytes: &[u8],
-) -> anyhow::Result<(String, String, String)> {
+) -> anyhow::Result<(String, String, String, i64, i64)> {
+    use image::GenericImageView;
     use sha2::{Digest, Sha256};
     let digest = Sha256::digest(bytes);
     let hash: String = digest.iter().map(|b| format!("{:02x}", b)).collect();
     std::fs::create_dir_all(images_dir)?;
     std::fs::create_dir_all(thumbs_dir)?;
     let img = image::load_from_memory(bytes)?;
+    let (w, h) = img.dimensions();
     let image_path = images_dir.join(format!("{hash}.png"));
     let thumb_path = thumbs_dir.join(format!("{hash}.png"));
     img.save(&image_path)?;
@@ -160,6 +166,8 @@ pub fn save_image_bytes(
         image_path.to_string_lossy().into_owned(),
         thumb_path.to_string_lossy().into_owned(),
         hash,
+        w as i64,
+        h as i64,
     ))
 }
 
@@ -168,6 +176,8 @@ pub fn insert_image(
     image_path: &str,
     thumb_path: &str,
     hash: &str,
+    width: i64,
+    height: i64,
     source_app: Option<&str>,
 ) -> rusqlite::Result<i64> {
     let existing: Option<i64> = conn
@@ -188,9 +198,9 @@ pub fn insert_image(
     }
     conn.execute(
         "INSERT INTO clipboard_items
-         (kind, content, image_path, thumb_path, hash, source_app, pinned, created_at, seq)
-         VALUES ('image', NULL, ?1, ?2, ?3, ?4, 0, ?5, ?6)",
-        rusqlite::params![image_path, thumb_path, hash, source_app, now, seq],
+         (kind, content, image_path, thumb_path, hash, width, height, source_app, pinned, created_at, seq)
+         VALUES ('image', NULL, ?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, ?8)",
+        rusqlite::params![image_path, thumb_path, hash, width, height, source_app, now, seq],
     )?;
     Ok(conn.last_insert_rowid())
 }
@@ -324,11 +334,13 @@ mod tests {
         let dir = tempdir().unwrap();
         let images = dir.path().join("images");
         let thumbs = dir.path().join("thumbs");
-        let (image_path, thumb_path, hash) =
+        let (image_path, thumb_path, hash, w, h) =
             save_image_bytes(&images, &thumbs, &tiny_png()).unwrap();
         assert!(std::path::Path::new(&image_path).exists());
         assert!(std::path::Path::new(&thumb_path).exists());
         assert_eq!(hash.len(), 64, "sha256 hex is 64 chars");
+        assert_eq!(w, 4, "tiny_png is 4 pixels wide");
+        assert_eq!(h, 4, "tiny_png is 4 pixels tall");
     }
 
     #[test]
@@ -336,9 +348,9 @@ mod tests {
         let (d, store) = open();
         let images = d.path().join("images");
         let thumbs = d.path().join("thumbs");
-        let (ip, tp, hash) = save_image_bytes(&images, &thumbs, &tiny_png()).unwrap();
-        let id1 = insert_image(&store.conn, &ip, &tp, &hash, None).unwrap();
-        let id2 = insert_image(&store.conn, &ip, &tp, &hash, None).unwrap();
+        let (ip, tp, hash, w, h) = save_image_bytes(&images, &thumbs, &tiny_png()).unwrap();
+        let id1 = insert_image(&store.conn, &ip, &tp, &hash, w, h, None).unwrap();
+        let id2 = insert_image(&store.conn, &ip, &tp, &hash, w, h, None).unwrap();
         assert_eq!(id1, id2, "same image hash dedupes to one row");
         let items = list_recent(&store.conn, 50).unwrap();
         assert_eq!(items.len(), 1);
@@ -346,6 +358,8 @@ mod tests {
         assert_eq!(items[0].image_path.as_deref(), Some(ip.as_str()));
         assert_eq!(items[0].thumb_path.as_deref(), Some(tp.as_str()));
         assert!(items[0].text.is_none());
+        assert_eq!(items[0].width, Some(4));
+        assert_eq!(items[0].height, Some(4));
     }
 
     #[test]
@@ -408,11 +422,11 @@ mod tests {
                 .unwrap();
             buf.into_inner()
         };
-        let (ipa, tpa, ha) = save_image_bytes(&images, &thumbs, &tiny_png()).unwrap();
-        let (ipb, tpb, hb) = save_image_bytes(&images, &thumbs, &png_b).unwrap();
+        let (ipa, tpa, ha, wa, ha_h) = save_image_bytes(&images, &thumbs, &tiny_png()).unwrap();
+        let (ipb, tpb, hb, wb, hb_h) = save_image_bytes(&images, &thumbs, &png_b).unwrap();
         assert_ne!(ha, hb, "different pixels produce different hashes");
-        let id1 = insert_image(&store.conn, &ipa, &tpa, &ha, None).unwrap();
-        let id2 = insert_image(&store.conn, &ipb, &tpb, &hb, None).unwrap();
+        let id1 = insert_image(&store.conn, &ipa, &tpa, &ha, wa, ha_h, None).unwrap();
+        let id2 = insert_image(&store.conn, &ipb, &tpb, &hb, wb, hb_h, None).unwrap();
         assert_ne!(id1, id2, "distinct images create distinct rows");
         assert_eq!(list_recent(&store.conn, 50).unwrap().len(), 2);
     }
