@@ -77,3 +77,67 @@ body {
 .command-bar__search input::placeholder {
   color: var(--muted);
 }
+
+.command-bar__tabs {
+  display: flex;
+  gap: 6px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.tab {
+  padding: 3px 10px;
+  border-radius: 7px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.tab.is-active {
+  background: var(--row-sel);
+  color: var(--fg);
+}
+.clip-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+  max-height: 360px;
+}
+.clip-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  cursor: default;
+}
+.clip-row:hover {
+  background: var(--row-sel);
+}
+.clip-row__thumb {
+  width: 28px;
+  height: 28px;
+  object-fit: cover;
+  border-radius: 5px;
+  flex: none;
+}
+.clip-row__text {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.clip-row__actions {
+  display: flex;
+  gap: 6px;
+  opacity: 0.6;
+}
+.clip-row__actions button {
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  font-size: 13px;
+}

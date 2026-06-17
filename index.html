@@ -13,8 +13,15 @@
         <span>🔍</span>
         <input id="search" placeholder="搜索应用、最近文件、剪贴板…" autofocus />
       </div>
+      <div class="command-bar__tabs" id="tabs">
+        <button class="tab is-active" data-mode="all">全部</button>
+        <button class="tab" data-mode="apps">应用</button>
+        <button class="tab" data-mode="files">最近文件</button>
+        <button class="tab" data-mode="clipboard">剪贴板</button>
+      </div>
       <div class="command-bar__body">
-        <p class="command-bar__hint">输入关键词，开始搜索应用、最近文件与剪贴板历史</p>
+        <ul class="clip-list" id="clip-list"></ul>
+        <p class="command-bar__hint" id="hint">输入关键词，开始搜索应用、最近文件与剪贴板历史</p>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
