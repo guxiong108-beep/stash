@@ -36,6 +36,12 @@ ALTER TABLE clipboard_items ADD COLUMN hash TEXT;
 PRAGMA user_version = 2;
 ";
 
+const MIGRATION_V3: &str = "
+ALTER TABLE clipboard_items ADD COLUMN seq INTEGER NOT NULL DEFAULT 0;
+UPDATE clipboard_items SET seq = id;
+PRAGMA user_version = 3;
+";
+
 impl Store {
     pub fn open(db_path: &Path) -> anyhow::Result<Store> {
         if let Some(parent) = db_path.parent() {
@@ -58,6 +64,9 @@ impl Store {
         }
         if version < 2 {
             self.conn.execute_batch(MIGRATION_V2)?;
+        }
+        if version < 3 {
+            self.conn.execute_batch(MIGRATION_V3)?;
         }
         Ok(())
     }
@@ -98,14 +107,14 @@ mod tests {
     }
 
     #[test]
-    fn fresh_db_is_at_version_2_with_hash_column() {
+    fn fresh_db_is_at_version_3_with_hash_and_seq_columns() {
         let dir = tempdir().unwrap();
         let store = Store::open(&dir.path().join("stash.db")).unwrap();
         let version: i64 = store
             .conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, 3);
         let cols: Vec<String> = store
             .conn
             .prepare("PRAGMA table_info(clipboard_items)")
@@ -115,6 +124,7 @@ mod tests {
             .collect::<Result<_, _>>()
             .unwrap();
         assert!(cols.contains(&"hash".to_string()));
+        assert!(cols.contains(&"seq".to_string()));
     }
 
     #[test]
@@ -127,6 +137,6 @@ mod tests {
             .conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, 3);
     }
 }

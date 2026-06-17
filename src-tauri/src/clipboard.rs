@@ -22,6 +22,17 @@ fn now_millis() -> i64 {
         .unwrap_or(0)
 }
 
+/// Next ordering value: strictly greater than any existing `seq`. Used so list
+/// ordering is monotonic by insertion and never depends on wall-clock resolution
+/// (two inserts in the same millisecond still get distinct, increasing seq).
+fn next_seq(conn: &Connection) -> rusqlite::Result<i64> {
+    conn.query_row(
+        "SELECT COALESCE(MAX(seq), 0) + 1 FROM clipboard_items",
+        [],
+        |r| r.get(0),
+    )
+}
+
 fn row_to_item(row: &rusqlite::Row) -> rusqlite::Result<ClipItem> {
     Ok(ClipItem {
         id: row.get(0)?,
@@ -51,17 +62,18 @@ pub fn insert_text(
         )
         .optional()?;
     let now = now_millis();
+    let seq = next_seq(conn)?;
     if let Some(id) = existing {
         conn.execute(
-            "UPDATE clipboard_items SET created_at=?1 WHERE id=?2",
-            rusqlite::params![now, id],
+            "UPDATE clipboard_items SET created_at=?1, seq=?2 WHERE id=?3",
+            rusqlite::params![now, seq, id],
         )?;
         return Ok(id);
     }
     conn.execute(
-        "INSERT INTO clipboard_items (kind, content, source_app, pinned, created_at)
-         VALUES ('text', ?1, ?2, 0, ?3)",
-        rusqlite::params![text, source_app, now],
+        "INSERT INTO clipboard_items (kind, content, source_app, pinned, created_at, seq)
+         VALUES ('text', ?1, ?2, 0, ?3, ?4)",
+        rusqlite::params![text, source_app, now, seq],
     )?;
     Ok(conn.last_insert_rowid())
 }
@@ -69,7 +81,7 @@ pub fn insert_text(
 pub fn list_recent(conn: &Connection, limit: i64) -> rusqlite::Result<Vec<ClipItem>> {
     let sql = format!(
         "SELECT {SELECT_COLS} FROM clipboard_items
-         ORDER BY pinned DESC, created_at DESC LIMIT ?1"
+         ORDER BY pinned DESC, seq DESC LIMIT ?1"
     );
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(rusqlite::params![limit], row_to_item)?;
@@ -84,14 +96,16 @@ pub fn set_pinned(conn: &Connection, id: i64, pinned: bool) -> rusqlite::Result<
     Ok(())
 }
 
-/// Keep at most `max` items by (pinned, recency). Pinned items are never
-/// deleted, so the actual row count may exceed `max` if many are pinned.
+/// Keep at most `max` items ranked by (pinned, seq). Pinned items are never
+/// deleted *and* they occupy keep-slots, so the number of retained *unpinned*
+/// items is `max - min(pinned_count, max)` and the total row count may exceed
+/// `max` when many items are pinned.
 pub fn enforce_cap(conn: &Connection, max: i64) -> rusqlite::Result<()> {
     conn.execute(
         "DELETE FROM clipboard_items
          WHERE pinned=0 AND id NOT IN (
              SELECT id FROM clipboard_items
-             ORDER BY pinned DESC, created_at DESC LIMIT ?1
+             ORDER BY pinned DESC, seq DESC LIMIT ?1
          )",
         rusqlite::params![max],
     )?;
@@ -116,7 +130,7 @@ pub fn search(conn: &Connection, query: &str, limit: i64) -> rusqlite::Result<Ve
     let sql = format!(
         "SELECT {SELECT_COLS} FROM clipboard_items
          WHERE kind='text' AND content LIKE ?1
-         ORDER BY pinned DESC, created_at DESC LIMIT ?2"
+         ORDER BY pinned DESC, seq DESC LIMIT ?2"
     );
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(rusqlite::params![like, limit], row_to_item)?;
@@ -125,6 +139,8 @@ pub fn search(conn: &Connection, query: &str, limit: i64) -> rusqlite::Result<Ve
 
 /// Decode `bytes`, write the original as PNG to `images_dir/<sha256>.png` and a
 /// 160px thumbnail to `thumbs_dir/<sha256>.png`. Returns (image_path, thumb_path, hash).
+/// `hash` is the SHA-256 of the *source* `bytes` (used as the dedupe identity),
+/// not of the re-encoded PNG written to disk.
 pub fn save_image_bytes(
     images_dir: &Path,
     thumbs_dir: &Path,
@@ -162,18 +178,19 @@ pub fn insert_image(
         )
         .optional()?;
     let now = now_millis();
+    let seq = next_seq(conn)?;
     if let Some(id) = existing {
         conn.execute(
-            "UPDATE clipboard_items SET created_at=?1 WHERE id=?2",
-            rusqlite::params![now, id],
+            "UPDATE clipboard_items SET created_at=?1, seq=?2 WHERE id=?3",
+            rusqlite::params![now, seq, id],
         )?;
         return Ok(id);
     }
     conn.execute(
         "INSERT INTO clipboard_items
-         (kind, content, image_path, thumb_path, hash, source_app, pinned, created_at)
-         VALUES ('image', NULL, ?1, ?2, ?3, ?4, 0, ?5)",
-        rusqlite::params![image_path, thumb_path, hash, source_app, now],
+         (kind, content, image_path, thumb_path, hash, source_app, pinned, created_at, seq)
+         VALUES ('image', NULL, ?1, ?2, ?3, ?4, 0, ?5, ?6)",
+        rusqlite::params![image_path, thumb_path, hash, source_app, now, seq],
     )?;
     Ok(conn.last_insert_rowid())
 }
@@ -329,5 +346,74 @@ mod tests {
         assert_eq!(items[0].image_path.as_deref(), Some(ip.as_str()));
         assert_eq!(items[0].thumb_path.as_deref(), Some(tp.as_str()));
         assert!(items[0].text.is_none());
+    }
+
+    #[test]
+    fn ordering_is_monotonic_and_bump_moves_to_top() {
+        let (_d, store) = open();
+        insert_text(&store.conn, "a", None).unwrap();
+        insert_text(&store.conn, "b", None).unwrap();
+        insert_text(&store.conn, "c", None).unwrap();
+        let order: Vec<String> = list_recent(&store.conn, 50)
+            .unwrap()
+            .iter()
+            .map(|i| i.text.clone().unwrap())
+            .collect();
+        assert_eq!(order, vec!["c", "b", "a"], "newest first by insertion seq");
+
+        // Re-inserting "a" must bump it to the very top deterministically,
+        // regardless of whether inserts shared a millisecond.
+        insert_text(&store.conn, "a", None).unwrap();
+        let order: Vec<String> = list_recent(&store.conn, 50)
+            .unwrap()
+            .iter()
+            .map(|i| i.text.clone().unwrap())
+            .collect();
+        assert_eq!(order, vec!["a", "c", "b"], "bumped item is newest");
+    }
+
+    #[test]
+    fn enforce_cap_at_or_above_count_is_noop() {
+        let (_d, store) = open();
+        for i in 0..3 {
+            insert_text(&store.conn, &format!("x{i}"), None).unwrap();
+        }
+        enforce_cap(&store.conn, 3).unwrap();
+        assert_eq!(list_recent(&store.conn, 50).unwrap().len(), 3);
+        enforce_cap(&store.conn, 10).unwrap();
+        assert_eq!(list_recent(&store.conn, 50).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn search_respects_limit() {
+        let (_d, store) = open();
+        for i in 0..5 {
+            insert_text(&store.conn, &format!("match{i}"), None).unwrap();
+        }
+        let hits = search(&store.conn, "match", 2).unwrap();
+        assert_eq!(hits.len(), 2);
+    }
+
+    #[test]
+    fn different_images_are_not_deduped() {
+        let (d, store) = open();
+        let images = d.path().join("images");
+        let thumbs = d.path().join("thumbs");
+        let png_b = {
+            use image::{ImageFormat, RgbImage};
+            let img = RgbImage::from_pixel(4, 4, image::Rgb([200, 100, 50]));
+            let mut buf = std::io::Cursor::new(Vec::new());
+            image::DynamicImage::ImageRgb8(img)
+                .write_to(&mut buf, ImageFormat::Png)
+                .unwrap();
+            buf.into_inner()
+        };
+        let (ipa, tpa, ha) = save_image_bytes(&images, &thumbs, &tiny_png()).unwrap();
+        let (ipb, tpb, hb) = save_image_bytes(&images, &thumbs, &png_b).unwrap();
+        assert_ne!(ha, hb, "different pixels produce different hashes");
+        let id1 = insert_image(&store.conn, &ipa, &tpa, &ha, None).unwrap();
+        let id2 = insert_image(&store.conn, &ipb, &tpb, &hb, None).unwrap();
+        assert_ne!(id1, id2, "distinct images create distinct rows");
+        assert_eq!(list_recent(&store.conn, 50).unwrap().len(), 2);
     }
 }
