@@ -1,6 +1,6 @@
 :root,
 [data-theme="warm"] {
-  --bg: rgba(38, 36, 44, 0.94);
+  --bg: #26242c;
   --fg: #efeaf0;
   --muted: rgba(239, 234, 240, 0.55);
   --row-sel: rgba(255, 123, 89, 0.16);
@@ -24,17 +24,36 @@
 html,
 body {
   margin: 0;
+  height: 100%;
   background: transparent;
   font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
 }
 
 .command-bar {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
   border-radius: 14px;
   overflow: hidden;
   background: var(--bg);
   color: var(--fg);
   border: 1px solid var(--border);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+}
+
+.command-bar__body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.command-bar__hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
 }
 
 .command-bar__search {
