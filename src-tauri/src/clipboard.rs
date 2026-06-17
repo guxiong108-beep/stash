@@ -110,6 +110,18 @@ pub fn clear(conn: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
+pub fn search(conn: &Connection, query: &str, limit: i64) -> rusqlite::Result<Vec<ClipItem>> {
+    let like = format!("%{}%", query);
+    let sql = format!(
+        "SELECT {SELECT_COLS} FROM clipboard_items
+         WHERE kind='text' AND content LIKE ?1
+         ORDER BY pinned DESC, created_at DESC LIMIT ?2"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(rusqlite::params![like, limit], row_to_item)?;
+    rows.collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -204,5 +216,23 @@ mod tests {
         insert_text(&store.conn, "b", None).unwrap();
         clear(&store.conn).unwrap();
         assert_eq!(list_recent(&store.conn, 50).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn search_matches_substring_case_insensitive() {
+        let (_d, store) = open();
+        insert_text(&store.conn, "Hello World", None).unwrap();
+        insert_text(&store.conn, "goodbye", None).unwrap();
+        let hits = search(&store.conn, "world", 50).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].text.as_deref(), Some("Hello World"));
+    }
+
+    #[test]
+    fn search_empty_query_returns_nothing_matching_only_text() {
+        let (_d, store) = open();
+        insert_text(&store.conn, "abc", None).unwrap();
+        let hits = search(&store.conn, "zzz", 50).unwrap();
+        assert_eq!(hits.len(), 0);
     }
 }
