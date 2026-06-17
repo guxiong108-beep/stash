@@ -16,7 +16,7 @@ function rowHtml(item: ClipItem): string {
     item.kind === "image" && item.thumb_path
       ? `<img class="clip-row__thumb" src="${convertFileSrc(item.thumb_path)}" />`
       : "";
-  return `<li class="clip-row" data-id="${item.id}">
+  return `<li class="clip-row" data-id="${item.id}" data-pinned="${item.pinned}">
     ${thumb}
     <span class="clip-row__text">${escapeHtml(formatClipPreview(item))}</span>
     <span class="clip-row__actions">
@@ -43,7 +43,7 @@ export function bindClipboardActions(): void {
     const act = (btn as HTMLElement).dataset.act;
     if (act === "del") await clipApi.remove(id);
     if (act === "pin") {
-      const pinned = btn.textContent?.includes("📌") ?? false;
+      const pinned = row.dataset.pinned === "true";
       await clipApi.setPinned(id, !pinned);
     }
     await renderClipboard();

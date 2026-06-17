@@ -27,6 +27,8 @@ function setupTabs(): void {
 
 function refresh(): void {
   const q = (document.getElementById("search") as HTMLInputElement).value;
+  // "全部" temporarily mirrors the clipboard view; apps/files land in plan ③
+  // and will be merged into the combined "all" results then.
   if (mode === "clipboard" || mode === "all") {
     void renderClipboard(q);
   } else {
