@@ -1,6 +1,7 @@
 mod storage;
 mod config;
 mod clipboard;
+mod clipmon;
 mod commands;
 mod paths;
 
@@ -73,6 +74,7 @@ pub fn run() {
             if let Err(e) = app.global_shortcut().register(main_hotkey) {
                 eprintln!("[stash] failed to register global hotkey Alt+Space: {e}");
             }
+            clipmon::start(&app.handle().clone());
             Ok(())
         })
         .run(tauri::generate_context!())
