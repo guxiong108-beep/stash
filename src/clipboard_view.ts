@@ -16,9 +16,13 @@ function rowHtml(item: ClipItem): string {
     item.kind === "image" && item.thumb_path
       ? `<img class="clip-row__thumb" src="${convertFileSrc(item.thumb_path)}" />`
       : "";
+  const source = item.source_app
+    ? `<span class="clip-row__source" title="来源">${escapeHtml(item.source_app)}</span>`
+    : "";
   return `<li class="clip-row" data-id="${item.id}" data-pinned="${item.pinned}">
     ${thumb}
     <span class="clip-row__text">${escapeHtml(formatClipPreview(item))}</span>
+    ${source}
     <span class="clip-row__actions">
       <button data-act="pin" title="置顶">${pin}</button>
       <button data-act="del" title="删除">🗑</button>

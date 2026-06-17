@@ -129,6 +129,15 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.clip-row__source {
+  flex: none;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--muted);
+}
 .clip-row__actions {
   display: flex;
   gap: 6px;

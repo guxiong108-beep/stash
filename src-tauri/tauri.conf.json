@@ -30,7 +30,7 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPDATA/Stash/**"]
+        "scope": ["$DATA/Stash/**"]
       }
     }
   },
