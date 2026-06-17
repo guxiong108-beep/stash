@@ -83,6 +83,20 @@ pub fn set_pinned(conn: &Connection, id: i64, pinned: bool) -> rusqlite::Result<
     Ok(())
 }
 
+/// Keep at most `max` items by (pinned, recency). Pinned items are never
+/// deleted, so the actual row count may exceed `max` if many are pinned.
+pub fn enforce_cap(conn: &Connection, max: i64) -> rusqlite::Result<()> {
+    conn.execute(
+        "DELETE FROM clipboard_items
+         WHERE pinned=0 AND id NOT IN (
+             SELECT id FROM clipboard_items
+             ORDER BY pinned DESC, created_at DESC LIMIT ?1
+         )",
+        rusqlite::params![max],
+    )?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,5 +142,34 @@ mod tests {
         set_pinned(&store.conn, old, true).unwrap();
         let items = list_recent(&store.conn, 50).unwrap();
         assert_eq!(items[0].text.as_deref(), Some("old"), "pinned floats to top");
+    }
+
+    #[test]
+    fn enforce_cap_evicts_oldest_unpinned_beyond_max() {
+        let (_d, store) = open();
+        for i in 0..5 {
+            insert_text(&store.conn, &format!("item{i}"), None).unwrap();
+        }
+        enforce_cap(&store.conn, 3).unwrap();
+        let items = list_recent(&store.conn, 50).unwrap();
+        assert_eq!(items.len(), 3, "keeps only the 3 newest");
+        assert_eq!(items[0].text.as_deref(), Some("item4"));
+        assert_eq!(items[2].text.as_deref(), Some("item2"));
+    }
+
+    #[test]
+    fn enforce_cap_never_evicts_pinned() {
+        let (_d, store) = open();
+        let keep = insert_text(&store.conn, "pinned-old", None).unwrap();
+        for i in 0..5 {
+            insert_text(&store.conn, &format!("item{i}"), None).unwrap();
+        }
+        set_pinned(&store.conn, keep, true).unwrap();
+        enforce_cap(&store.conn, 3).unwrap();
+        let items = list_recent(&store.conn, 50).unwrap();
+        assert!(
+            items.iter().any(|i| i.text.as_deref() == Some("pinned-old")),
+            "pinned item survives eviction"
+        );
     }
 }
