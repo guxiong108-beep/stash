@@ -1,6 +1,7 @@
 mod storage;
 mod config;
 mod clipboard;
+mod paths;
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -54,7 +55,7 @@ pub fn run() {
             let handle = app.handle().clone();
             let dir = stash_dir(&handle)
                 .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
-            let store = Store::open(&dir.join("stash.db"))
+            let store = Store::open(&paths::db_path(&dir))
                 .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
             app.manage(Mutex::new(store));
 
