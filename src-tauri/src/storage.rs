@@ -31,6 +31,11 @@ CREATE TABLE IF NOT EXISTS file_usage (
 PRAGMA user_version = 1;
 ";
 
+const MIGRATION_V2: &str = "
+ALTER TABLE clipboard_items ADD COLUMN hash TEXT;
+PRAGMA user_version = 2;
+";
+
 impl Store {
     pub fn open(db_path: &Path) -> anyhow::Result<Store> {
         if let Some(parent) = db_path.parent() {
@@ -45,7 +50,15 @@ impl Store {
     }
 
     fn run_migrations(&self) -> anyhow::Result<()> {
-        self.conn.execute_batch(MIGRATION_V1)?;
+        let version: i64 = self
+            .conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        if version < 1 {
+            self.conn.execute_batch(MIGRATION_V1)?;
+        }
+        if version < 2 {
+            self.conn.execute_batch(MIGRATION_V2)?;
+        }
         Ok(())
     }
 
@@ -82,5 +95,38 @@ mod tests {
         let db = dir.path().join("nested/sub/stash.db");
         assert!(Store::open(&db).is_ok());
         assert!(db.exists());
+    }
+
+    #[test]
+    fn fresh_db_is_at_version_2_with_hash_column() {
+        let dir = tempdir().unwrap();
+        let store = Store::open(&dir.path().join("stash.db")).unwrap();
+        let version: i64 = store
+            .conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, 2);
+        let cols: Vec<String> = store
+            .conn
+            .prepare("PRAGMA table_info(clipboard_items)")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert!(cols.contains(&"hash".to_string()));
+    }
+
+    #[test]
+    fn migrations_are_idempotent_on_reopen() {
+        let dir = tempdir().unwrap();
+        let db = dir.path().join("stash.db");
+        Store::open(&db).unwrap();
+        let store = Store::open(&db).unwrap();
+        let version: i64 = store
+            .conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, 2);
     }
 }
