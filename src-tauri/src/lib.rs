@@ -1,6 +1,7 @@
 mod storage;
 mod config;
 mod clipboard;
+mod commands;
 mod paths;
 
 use std::path::PathBuf;
@@ -50,7 +51,14 @@ pub fn run() {
                 })
                 .build(),
         )
-        .invoke_handler(tauri::generate_handler![get_config])
+        .invoke_handler(tauri::generate_handler![
+            get_config,
+            commands::clip_list,
+            commands::clip_search,
+            commands::clip_set_pinned,
+            commands::clip_delete,
+            commands::clip_clear
+        ])
         .setup(|app| {
             let handle = app.handle().clone();
             let dir = stash_dir(&handle)
