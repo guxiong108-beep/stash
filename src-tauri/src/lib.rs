@@ -1,5 +1,6 @@
 mod storage;
 mod config;
+mod clipboard;
 
 use std::path::PathBuf;
 use std::sync::Mutex;

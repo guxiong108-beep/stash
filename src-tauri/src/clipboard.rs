@@ -1,0 +1,132 @@
+use rusqlite::{Connection, OptionalExtension};
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ClipItem {
+    pub id: i64,
+    pub kind: String, // "text" | "image"
+    pub text: Option<String>,
+    pub image_path: Option<String>,
+    pub thumb_path: Option<String>,
+    pub source_app: Option<String>,
+    pub pinned: bool,
+    pub created_at: i64, // unix millis
+}
+
+fn now_millis() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+fn row_to_item(row: &rusqlite::Row) -> rusqlite::Result<ClipItem> {
+    Ok(ClipItem {
+        id: row.get(0)?,
+        kind: row.get(1)?,
+        text: row.get(2)?,
+        image_path: row.get(3)?,
+        thumb_path: row.get(4)?,
+        source_app: row.get(5)?,
+        pinned: row.get::<_, i64>(6)? != 0,
+        created_at: row.get(7)?,
+    })
+}
+
+const SELECT_COLS: &str =
+    "id, kind, content, image_path, thumb_path, source_app, pinned, created_at";
+
+pub fn insert_text(
+    conn: &Connection,
+    text: &str,
+    source_app: Option<&str>,
+) -> rusqlite::Result<i64> {
+    let existing: Option<i64> = conn
+        .query_row(
+            "SELECT id FROM clipboard_items WHERE kind='text' AND content=?1 LIMIT 1",
+            rusqlite::params![text],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let now = now_millis();
+    if let Some(id) = existing {
+        conn.execute(
+            "UPDATE clipboard_items SET created_at=?1 WHERE id=?2",
+            rusqlite::params![now, id],
+        )?;
+        return Ok(id);
+    }
+    conn.execute(
+        "INSERT INTO clipboard_items (kind, content, source_app, pinned, created_at)
+         VALUES ('text', ?1, ?2, 0, ?3)",
+        rusqlite::params![text, source_app, now],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+pub fn list_recent(conn: &Connection, limit: i64) -> rusqlite::Result<Vec<ClipItem>> {
+    let sql = format!(
+        "SELECT {SELECT_COLS} FROM clipboard_items
+         ORDER BY pinned DESC, created_at DESC LIMIT ?1"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(rusqlite::params![limit], row_to_item)?;
+    rows.collect()
+}
+
+pub fn set_pinned(conn: &Connection, id: i64, pinned: bool) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE clipboard_items SET pinned=?1 WHERE id=?2",
+        rusqlite::params![pinned as i64, id],
+    )?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::Store;
+    use tempfile::tempdir;
+
+    fn open() -> (tempfile::TempDir, Store) {
+        let dir = tempdir().unwrap();
+        let store = Store::open(&dir.path().join("stash.db")).unwrap();
+        (dir, store)
+    }
+
+    #[test]
+    fn insert_text_then_list_returns_it() {
+        let (_d, store) = open();
+        let id = insert_text(&store.conn, "hello", Some("notepad")).unwrap();
+        assert!(id > 0);
+        let items = list_recent(&store.conn, 50).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].kind, "text");
+        assert_eq!(items[0].text.as_deref(), Some("hello"));
+        assert_eq!(items[0].source_app.as_deref(), Some("notepad"));
+        assert!(!items[0].pinned);
+    }
+
+    #[test]
+    fn duplicate_text_is_deduped_and_bumped_to_top() {
+        let (_d, store) = open();
+        let id1 = insert_text(&store.conn, "aaa", None).unwrap();
+        insert_text(&store.conn, "bbb", None).unwrap();
+        let id_again = insert_text(&store.conn, "aaa", None).unwrap();
+        assert_eq!(id1, id_again, "same text must reuse the same row");
+        let items = list_recent(&store.conn, 50).unwrap();
+        assert_eq!(items.len(), 2, "no duplicate row created");
+        assert_eq!(items[0].text.as_deref(), Some("aaa"), "re-inserted item is newest");
+    }
+
+    #[test]
+    fn list_orders_pinned_first_then_recent() {
+        let (_d, store) = open();
+        let old = insert_text(&store.conn, "old", None).unwrap();
+        insert_text(&store.conn, "new", None).unwrap();
+        set_pinned(&store.conn, old, true).unwrap();
+        let items = list_recent(&store.conn, 50).unwrap();
+        assert_eq!(items[0].text.as_deref(), Some("old"), "pinned floats to top");
+    }
+}
