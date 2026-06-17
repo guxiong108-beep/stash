@@ -102,6 +102,15 @@ body {
   padding: 6px;
   overflow-y: auto;
 }
+.clip-group {
+  position: sticky;
+  top: 0;
+  padding: 6px 10px 4px;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--bg);
+  z-index: 1;
+}
 .clip-row {
   display: flex;
   align-items: center;

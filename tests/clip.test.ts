@@ -3,6 +3,7 @@ import {
   formatClipPreview,
   clipTypeLabel,
   textCharCount,
+  dayBucket,
   type ClipItem,
 } from "../src/clip";
 
@@ -51,5 +52,21 @@ describe("textCharCount", () => {
   });
   it("returns null for image items", () => {
     expect(textCharCount(imageItem())).toBeNull();
+  });
+});
+
+describe("dayBucket", () => {
+  const now = new Date(2026, 5, 17, 10, 0, 0).getTime(); // 2026-06-17 10:00 local
+  it("labels same-day items 今天", () => {
+    const earlierToday = new Date(2026, 5, 17, 1, 0, 0).getTime();
+    expect(dayBucket(earlierToday, now)).toBe("今天");
+  });
+  it("labels previous-day items 昨天", () => {
+    const yesterday = new Date(2026, 5, 16, 23, 0, 0).getTime();
+    expect(dayBucket(yesterday, now)).toBe("昨天");
+  });
+  it("labels older items with an ISO date", () => {
+    const older = new Date(2026, 5, 14, 12, 0, 0).getTime();
+    expect(dayBucket(older, now)).toBe("2026-06-14");
   });
 });

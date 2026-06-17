@@ -3,6 +3,7 @@ import {
   formatClipPreview,
   clipTypeLabel,
   textCharCount,
+  dayBucket,
   type ClipItem,
 } from "./clip";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -43,6 +44,30 @@ function rowHtml(item: ClipItem): string {
   </li>`;
 }
 
+function groupHeader(label: string): string {
+  return `<li class="clip-group" aria-hidden="true">${label}</li>`;
+}
+
+/** Build the list HTML: a 置顶 section for pinned items, then day-bucketed groups. */
+function groupedListHtml(rows: ClipItem[], nowMs: number): string {
+  const pinned = rows.filter((i) => i.pinned);
+  const rest = rows.filter((i) => !i.pinned);
+  let html = "";
+  if (pinned.length) {
+    html += groupHeader("置顶") + pinned.map(rowHtml).join("");
+  }
+  let lastBucket = "";
+  for (const item of rest) {
+    const bucket = dayBucket(item.created_at, nowMs);
+    if (bucket !== lastBucket) {
+      html += groupHeader(bucket);
+      lastBucket = bucket;
+    }
+    html += rowHtml(item);
+  }
+  return html;
+}
+
 function metaRow(label: string, value: string): string {
   return `<div class="clip-detail__metarow"><span class="clip-detail__metakey">${label}</span><span class="clip-detail__metaval">${escapeHtml(value)}</span></div>`;
 }
@@ -66,7 +91,7 @@ function detailHtml(item: ClipItem | null): string {
     rows.push(metaRow("类型", clipTypeLabel(item)));
     rows.push(metaRow("字数", String(textCharCount(item) ?? 0)));
   }
-  rows.push(metaRow("时间", new Date(item.created_at).toLocaleString()));
+  rows.push(metaRow("复制时间", new Date(item.created_at).toLocaleString()));
 
   return `<div class="clip-detail__preview">${preview}</div>
     <div class="clip-detail__meta">${rows.join("")}</div>`;
@@ -95,7 +120,7 @@ export async function renderClipboard(query = ""): Promise<void> {
   const has = items.length > 0;
   bodyEl().style.display = has ? "flex" : "none";
   hintEl().style.display = has ? "none" : "block";
-  listEl().innerHTML = items.map(rowHtml).join("");
+  listEl().innerHTML = groupedListHtml(items, Date.now());
   renderDetail();
 }
 
