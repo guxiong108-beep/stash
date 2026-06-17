@@ -29,6 +29,29 @@ function setupTabs(): void {
   });
 }
 
+function setupSplitter(): void {
+  const splitter = document.getElementById("clip-splitter")!;
+  const list = document.getElementById("clip-list") as HTMLElement;
+  const body = document.querySelector(".command-bar__body") as HTMLElement;
+  let dragging = false;
+  splitter.addEventListener("mousedown", (e) => {
+    dragging = true;
+    e.preventDefault();
+    document.body.style.userSelect = "none";
+  });
+  window.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    const left = body.getBoundingClientRect().left;
+    const w = Math.min(520, Math.max(180, e.clientX - left));
+    list.style.flex = `0 0 ${w}px`;
+  });
+  window.addEventListener("mouseup", () => {
+    if (!dragging) return;
+    dragging = false;
+    document.body.style.userSelect = "";
+  });
+}
+
 function refresh(): void {
   const q = (document.getElementById("search") as HTMLInputElement).value;
   // "全部" temporarily mirrors the clipboard view; apps/files land in plan ③
@@ -49,6 +72,7 @@ async function init(): Promise<void> {
     applyTheme("warm");
   }
   setupTabs();
+  setupSplitter();
   bindClipboardActions();
   document.addEventListener("keydown", (e) => {
     if (mode !== "clipboard" && mode !== "all") return;

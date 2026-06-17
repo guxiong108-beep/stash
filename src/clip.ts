@@ -9,11 +9,17 @@ export interface ClipItem {
   source_app: string | null;
   pinned: boolean;
   created_at: number;
+  width: number | null;
+  height: number | null;
 }
 
 /** One-line, length-capped preview for a clipboard row. */
 export function formatClipPreview(item: ClipItem): string {
-  if (item.kind === "image") return "[图片]";
+  if (item.kind === "image") {
+    return item.width && item.height
+      ? `图片 ${item.width}×${item.height}`
+      : "图片";
+  }
   const oneLine = (item.text ?? "").replace(/\s+/g, " ").trim();
   return oneLine.length > 80 ? oneLine.slice(0, 80) + "…" : oneLine;
 }

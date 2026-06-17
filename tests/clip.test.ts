@@ -10,14 +10,14 @@ import {
 function textItem(text: string): ClipItem {
   return {
     id: 1, kind: "text", text, image_path: null, thumb_path: null,
-    source_app: null, pinned: false, created_at: 0,
+    source_app: null, pinned: false, created_at: 0, width: null, height: null,
   };
 }
 
-function imageItem(): ClipItem {
+function imageItem(width: number | null = null, height: number | null = null): ClipItem {
   return {
     id: 2, kind: "image", text: null, image_path: "x.png", thumb_path: "t.png",
-    source_app: null, pinned: false, created_at: 0,
+    source_app: null, pinned: false, created_at: 0, width, height,
   };
 }
 
@@ -34,8 +34,12 @@ describe("formatClipPreview", () => {
     expect(out.endsWith("…")).toBe(true);
   });
 
-  it("labels image items", () => {
-    expect(formatClipPreview(imageItem())).toBe("[图片]");
+  it("labels image items without dimensions", () => {
+    expect(formatClipPreview(imageItem())).toBe("图片");
+  });
+
+  it("shows dimensions for image items when known", () => {
+    expect(formatClipPreview(imageItem(745, 469))).toBe("图片 745×469");
   });
 });
 

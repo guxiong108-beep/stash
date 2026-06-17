@@ -7,6 +7,7 @@ import {
   type ClipItem,
 } from "./clip";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { openPath } from "@tauri-apps/plugin-opener";
 
 let items: ClipItem[] = [];
 let selectedId: number | null = null;
@@ -84,9 +85,8 @@ function detailHtml(item: ClipItem | null): string {
   const rows: string[] = [];
   rows.push(metaRow("来源", item.source_app ?? "—"));
   if (item.kind === "image") {
-    rows.push(
-      `<div class="clip-detail__metarow"><span class="clip-detail__metakey">类型</span><span class="clip-detail__metaval">图片 <span class="clip-detail__dims"></span></span></div>`,
-    );
+    const dims = item.width && item.height ? ` (${item.width}×${item.height})` : "";
+    rows.push(metaRow("类型", `图片${dims}`));
   } else {
     rows.push(metaRow("类型", clipTypeLabel(item)));
     rows.push(metaRow("字数", String(textCharCount(item) ?? 0)));
@@ -103,12 +103,12 @@ function renderDetail(): void {
   const img = detailEl().querySelector(
     ".clip-detail__img",
   ) as HTMLImageElement | null;
-  const dims = detailEl().querySelector(".clip-detail__dims") as HTMLElement | null;
-  if (img && dims) {
-    const fill = () => {
-      if (img.naturalWidth) dims.textContent = `(${img.naturalWidth}×${img.naturalHeight})`;
-    };
-    img.complete ? fill() : img.addEventListener("load", fill);
+  if (img && item && item.image_path) {
+    const path = item.image_path;
+    img.title = "点击查看原图";
+    img.addEventListener("click", () => {
+      void openPath(path);
+    });
   }
 }
 
